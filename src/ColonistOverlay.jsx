@@ -18,13 +18,18 @@ export default function ColonistOverlay({ snapshot, actions }) {
   });
   const rootRef = useRef(null);
   const dragStateRef = useRef(null);
+  const resizeStateRef = useRef(null);
   const [position, setPosition] = useState(() => ({
     left: Number.isFinite(snapshot.overlayLeft) ? snapshot.overlayLeft : null,
     top: Number.isFinite(snapshot.overlayTop) ? snapshot.overlayTop : null
   }));
+  const [size, setSize] = useState(() => ({
+    width: Number.isFinite(snapshot.overlayWidth) ? snapshot.overlayWidth : null,
+    height: Number.isFinite(snapshot.overlayHeight) ? snapshot.overlayHeight : null
+  }));
 
   useEffect(() => {
-    if (dragStateRef.current) {
+    if (dragStateRef.current || resizeStateRef.current) {
       return;
     }
 
@@ -36,19 +41,40 @@ export default function ColonistOverlay({ snapshot, actions }) {
     }
   }, [snapshot.overlayLeft, snapshot.overlayTop]);
 
-  const rootStyle = useMemo(() => {
-    if (!Number.isFinite(position.left) || !Number.isFinite(position.top)) {
-      return undefined;
+  useEffect(() => {
+    if (resizeStateRef.current) {
+      return;
     }
 
-    return {
-      left: `${position.left}px`,
-      top: `${position.top}px`
-    };
-  }, [position.left, position.top]);
+    if (Number.isFinite(snapshot.overlayWidth) && Number.isFinite(snapshot.overlayHeight)) {
+      setSize({
+        width: snapshot.overlayWidth,
+        height: snapshot.overlayHeight
+      });
+    }
+  }, [snapshot.overlayWidth, snapshot.overlayHeight]);
+
+  const rootStyle = useMemo(() => {
+    const style = {};
+
+    if (Number.isFinite(position.left) && Number.isFinite(position.top)) {
+      style.left = `${position.left}px`;
+      style.top = `${position.top}px`;
+    }
+
+    if (Number.isFinite(size.width)) {
+      style.width = `${size.width}px`;
+    }
+
+    if (!collapsed && Number.isFinite(size.height)) {
+      style.height = `${size.height}px`;
+    }
+
+    return Object.keys(style).length ? style : undefined;
+  }, [collapsed, position.left, position.top, size.height, size.width]);
 
   function handlePointerDown(event) {
-    if (event.target instanceof HTMLElement && event.target.closest("button, select, input")) {
+    if (event.target instanceof HTMLElement && event.target.closest("button, select, input, [data-role='resize-handle']")) {
       return;
     }
 
@@ -102,6 +128,61 @@ export default function ColonistOverlay({ snapshot, actions }) {
     }
   }
 
+  function handleResizePointerDown(event) {
+    const root = rootRef.current;
+
+    if (!root) {
+      return;
+    }
+
+    event.stopPropagation();
+    resizeStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: root.offsetWidth,
+      startHeight: root.offsetHeight
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleResizePointerMove(event) {
+    const resizeState = resizeStateRef.current;
+    const root = rootRef.current;
+
+    if (!resizeState || resizeState.pointerId !== event.pointerId || !root) {
+      return;
+    }
+
+    const rect = root.getBoundingClientRect();
+    const maxWidth = Math.max(340, window.innerWidth - rect.left - 8);
+    const maxHeight = Math.max(220, window.innerHeight - rect.top - 8);
+    const nextWidth = clamp(resizeState.startWidth + event.clientX - resizeState.startX, 340, maxWidth);
+    const nextHeight = clamp(resizeState.startHeight + event.clientY - resizeState.startY, 220, maxHeight);
+
+    resizeState.width = nextWidth;
+    resizeState.height = nextHeight;
+    setSize({
+      width: nextWidth,
+      height: nextHeight
+    });
+  }
+
+  function handleResizePointerUp(event) {
+    const resizeState = resizeStateRef.current;
+
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    resizeStateRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+
+    if (Number.isFinite(resizeState.width) && Number.isFinite(resizeState.height)) {
+      actions.saveOverlaySize(resizeState.width, resizeState.height);
+    }
+  }
+
   function toggleSection(section) {
     setCollapsedSections((value) => ({
       ...value,
@@ -132,96 +213,84 @@ export default function ColonistOverlay({ snapshot, actions }) {
             </div>
             <div>
               <div className="csh-title">Colonist resources</div>
-              <div className="csh-subtitle" title={snapshot.statusText}>
-                {snapshot.statusText}
-              </div>
             </div>
           </div>
-          <button
-            className="csh-icon-button"
-            type="button"
-            title={collapsed ? "Expand" : "Collapse"}
-            onClick={() => setCollapsed((value) => !value)}
-          >
-            {collapsed ? "+" : "-"}
-          </button>
+          <div className="csh-title-actions">
+            <ActionRail snapshot={snapshot} actions={actions} />
+            <button
+              className="csh-icon-button"
+              type="button"
+              title={collapsed ? "Expand" : "Collapse"}
+              onClick={() => setCollapsed((value) => !value)}
+            >
+              {collapsed ? "+" : "-"}
+            </button>
+          </div>
         </div>
 
         <div className="csh-body">
-          <div className="csh-metrics">
-            <Metric value={snapshot.eventCount} label="events" status={snapshot.eventCount ? "active" : "waiting"} />
-            <Metric value={snapshot.domStatus} label="DOM" status={snapshot.domStatus} />
-            <Metric value={snapshot.wsStatus} label="WS" status={snapshot.wsStatus} />
-          </div>
-
-          <div className="csh-section">
-            <div className="csh-section-title">Resources</div>
-            <div className="csh-table">
-              {snapshot.playerRows.length ? (
-                <>
-                  <ResourceHeader />
-                  {snapshot.playerRows.map((row) => (
-                    <TrackedPlayerRow key={row.player} row={row} />
-                  ))}
-                  <ResourceTotalRow totals={snapshot.resourceTotals} />
-                </>
-              ) : (
-                <div className="csh-empty">No resource data yet</div>
-              )}
+          <div className="csh-main">
+            <div className="csh-section">
+              <div className="csh-section-title">Resources</div>
+              <div className="csh-table">
+                {snapshot.playerRows.length ? (
+                  <>
+                    <ResourceHeader />
+                    {snapshot.playerRows.map((row) => (
+                      <TrackedPlayerRow key={row.player} row={row} />
+                    ))}
+                    <ResourceTotalRow totals={snapshot.resourceTotals} />
+                  </>
+                ) : (
+                  <div className="csh-empty">No resource data yet</div>
+                )}
+              </div>
             </div>
-          </div>
 
-          {snapshot.robberies.length > 0 && (
+            {snapshot.robberies.length > 0 && (
+              <CollapsibleSection
+                title="Steals"
+                count={snapshot.robberies.length}
+                collapsed={collapsedSections.steals}
+                className="csh-steals"
+                onToggle={() => toggleSection("steals")}
+              >
+                <div className="csh-steal-list">
+                  {snapshot.robberies.map((robbery) => (
+                    <RobberyRow key={robbery.id} robbery={robbery} />
+                  ))}
+                </div>
+              </CollapsibleSection>
+            )}
+
+            {snapshot.monopoly && <MonopolyPanel monopoly={snapshot.monopoly} actions={actions} />}
+
             <CollapsibleSection
-              title="Steals"
-              count={snapshot.robberies.length}
-              collapsed={collapsedSections.steals}
-              className="csh-steals"
-              onToggle={() => toggleSection("steals")}
+              title="Latest log"
+              count={snapshot.latestEvents.length}
+              collapsed={collapsedSections.log}
+              onToggle={() => toggleSection("log")}
             >
-              <div className="csh-steal-list">
-                {snapshot.robberies.map((robbery) => (
-                  <RobberyRow key={robbery.id} robbery={robbery} />
-                ))}
+              <div className="csh-log">
+                {snapshot.latestEvents.length ? (
+                  snapshot.latestEvents.map((eventRecord) => <EventRow key={eventRecord.id} eventRecord={eventRecord} />)
+                ) : (
+                  <div className="csh-empty">Waiting for log entries</div>
+                )}
               </div>
             </CollapsibleSection>
-          )}
-
-          {snapshot.monopoly && <MonopolyPanel monopoly={snapshot.monopoly} actions={actions} />}
-
-          <CollapsibleSection
-            title="Latest log"
-            count={snapshot.latestEvents.length}
-            collapsed={collapsedSections.log}
-            onToggle={() => toggleSection("log")}
-          >
-            <div className="csh-log">
-              {snapshot.latestEvents.length ? (
-                snapshot.latestEvents.map((eventRecord) => <EventRow key={eventRecord.id} eventRecord={eventRecord} />)
-              ) : (
-                <div className="csh-empty">Waiting for log entries</div>
-              )}
-            </div>
-          </CollapsibleSection>
-
-          <div className="csh-actions">
-            <button type="button" onClick={actions.scanHistory} disabled={snapshot.historyScanRunning}>
-              {snapshot.historyScanRunning ? "Scanning" : "History"}
-            </button>
-            <button type="button" onClick={actions.togglePaused}>
-              {snapshot.paused ? "Resume" : "Pause"}
-            </button>
-            <button type="button" onClick={actions.exportLogSample}>
-              Sample
-            </button>
-            <button type="button" onClick={actions.exportEvents}>
-              Export
-            </button>
-            <button type="button" onClick={actions.clearEvents}>
-              Clear
-            </button>
           </div>
+
         </div>
+
+        <div
+          className="csh-resize-handle"
+          data-role="resize-handle"
+          title="Resize"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+        />
       </div>
     </div>
   );
@@ -242,11 +311,42 @@ function CollapsibleSection({ title, count, collapsed, className = "", onToggle,
   );
 }
 
-function Metric({ value, label, status }) {
+function ActionRail({ snapshot, actions }) {
+  const [open, setOpen] = useState(false);
+
+  function runAction(action) {
+    action();
+    setOpen(false);
+  }
+
   return (
-    <div className={`csh-metric-card ${getStatusClass(status)}`}>
-      <span>{value}</span>
-      <small>{label}</small>
+    <div className="csh-action-rail">
+      <button
+        type="button"
+        className="csh-action-menu-toggle"
+        title="More options"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        ...
+      </button>
+      <div className="csh-action-menu" hidden={!open}>
+        <button type="button" title="Scan history" onClick={() => runAction(actions.scanHistory)} disabled={snapshot.historyScanRunning}>
+          {snapshot.historyScanRunning ? "Scan" : "Hist"}
+        </button>
+        <button type="button" title={snapshot.paused ? "Resume recording" : "Pause recording"} onClick={() => runAction(actions.togglePaused)}>
+          {snapshot.paused ? "Resume" : "Pause"}
+        </button>
+        <button type="button" title="Download parser sample" onClick={() => runAction(actions.exportLogSample)}>
+          Sample
+        </button>
+        <button type="button" title="Export events" onClick={() => runAction(actions.exportEvents)}>
+          Export
+        </button>
+        <button type="button" title="Clear events" onClick={() => runAction(actions.clearEvents)}>
+          Clear
+        </button>
+      </div>
     </div>
   );
 }
@@ -274,12 +374,24 @@ function ResourceHeader() {
 function TrackedPlayerRow({ row }) {
   return (
     <div className="csh-resource-row">
-      <strong title={row.displayName}>{row.displayName}</strong>
+      <PlayerName as="strong" name={row.displayName} color={row.color} title={row.displayName} />
       <TotalCell range={row.totalRange} />
       {RESOURCE_TYPES.map((resource) => (
         <ResourceCell key={resource} range={row.ranges[resource]} resource={resource} />
       ))}
     </div>
+  );
+}
+
+function PlayerName({ name, displayName, color, title, className = "", as: Tag = "span" }) {
+  const label = displayName || name;
+  const style = color ? { "--csh-player-color": color } : undefined;
+  const classes = ["csh-player-name", color ? "csh-player-name-colored" : "", className].filter(Boolean).join(" ");
+
+  return (
+    <Tag className={classes} title={title || name} style={style}>
+      {label}
+    </Tag>
   );
 }
 
@@ -357,7 +469,8 @@ function RobberyRow({ robbery }) {
   return (
     <div className={`csh-steal-row csh-steal-${status}`} title={title}>
       <span className="csh-steal-route">
-        <strong>{formatShortPlayerName(robbery.to)}</strong> stole from {formatShortPlayerName(robbery.from)}
+        <PlayerName as="strong" name={robbery.to} displayName={formatShortPlayerName(robbery.to)} color={robbery.toColor} /> stole from{" "}
+        <PlayerName name={robbery.from} displayName={formatShortPlayerName(robbery.from)} color={robbery.fromColor} />
       </span>
       <span className="csh-steal-resources">
         {resources.map((resource) => (
@@ -389,7 +502,13 @@ function MonopolyPanel({ monopoly, actions }) {
       <div className="csh-section-title">Monopoly</div>
       <div className="csh-monopoly-panel">
         <div className="csh-monopoly-head">
-          <strong title={monopoly.actor}>{formatShortPlayerName(monopoly.actor)}</strong>
+          <PlayerName
+            as="strong"
+            name={monopoly.actor}
+            displayName={formatShortPlayerName(monopoly.actor)}
+            color={monopoly.actorColor}
+            title={monopoly.actor}
+          />
           <select
             value={monopoly.resource}
             title="Resource stolen by Monopoly"
@@ -407,7 +526,13 @@ function MonopolyPanel({ monopoly, actions }) {
           {monopoly.victims.map((victim) => (
             <label key={victim.player} className="csh-monopoly-victim">
               <span title={victim.displayName}>
-                {formatShortPlayerName(victim.displayName)} <small>{formatRange(victim.totalRange)}</small>
+                <PlayerName
+                  name={victim.displayName}
+                  displayName={formatShortPlayerName(victim.displayName)}
+                  color={victim.color}
+                  title={victim.displayName}
+                />{" "}
+                <small>{formatRange(victim.totalRange)}</small>
               </span>
               <input
                 type="number"
@@ -434,43 +559,91 @@ function EventRow({ eventRecord }) {
     <div className="csh-event-row">
       <span className="csh-source">{String(eventRecord.source || "").toUpperCase()}</span>
       <span className="csh-event-text" title={eventRecord.raw}>
-        <VisualizedLogText text={eventRecord.raw} />
+        <VisualizedLogText text={eventRecord.raw} playerColors={eventRecord.playerColors} />
       </span>
     </div>
   );
 }
 
-function VisualizedLogText({ text }) {
+function VisualizedLogText({ text, playerColors = {} }) {
+  const value = String(text || "");
+  const tokens = getVisualLogTokens(value, playerColors);
   const parts = [];
-  const resourcePattern = new RegExp("\\[(" + RESOURCE_TYPES.join("|") + ")\\]", "gi");
   let lastIndex = 0;
 
-  for (const match of String(text || "").matchAll(resourcePattern)) {
-    if (match.index > lastIndex) {
-      parts.push(String(text).slice(lastIndex, match.index));
+  for (const token of tokens) {
+    if (token.start > lastIndex) {
+      parts.push(value.slice(lastIndex, token.start));
     }
 
-    parts.push(<ResourceIcon key={`${match.index}-${match[1]}`} resource={match[1].toLowerCase()} className="csh-inline-resource-icon" />);
-    lastIndex = match.index + match[0].length;
+    if (token.type === "resource") {
+      parts.push(<ResourceIcon key={`${token.start}-${token.resource}`} resource={token.resource} className="csh-inline-resource-icon" />);
+    } else {
+      const playerName = value.slice(token.start, token.end);
+
+      parts.push(
+        <PlayerName
+          key={`${token.start}-${playerName}`}
+          as="strong"
+          name={playerName}
+          color={token.color}
+          className="csh-inline-player-name"
+        />
+      );
+    }
+
+    lastIndex = token.end;
   }
 
-  if (lastIndex < String(text || "").length) {
-    parts.push(String(text).slice(lastIndex));
+  if (lastIndex < value.length) {
+    parts.push(value.slice(lastIndex));
   }
 
   return parts.length ? parts : text;
 }
 
-function getStatusClass(status) {
-  if (/connected|readable|active|hooked/i.test(String(status))) {
-    return "csh-status-good";
+function getVisualLogTokens(text, playerColors) {
+  const tokens = [];
+  const resourcePattern = new RegExp("\\[(" + RESOURCE_TYPES.join("|") + ")\\]", "gi");
+
+  for (const match of text.matchAll(resourcePattern)) {
+    tokens.push({
+      type: "resource",
+      start: match.index,
+      end: match.index + match[0].length,
+      resource: match[1].toLowerCase()
+    });
   }
 
-  if (/searching|waiting|history|scanning/i.test(String(status))) {
-    return "csh-status-warn";
+  const playerEntries = Object.entries(playerColors || {})
+    .filter(([player, color]) => player && color)
+    .sort(([first], [second]) => second.length - first.length);
+
+  for (const [player, color] of playerEntries) {
+    const playerPattern = new RegExp("(^|[^A-Za-z0-9_.-])(" + escapeRegExp(player) + ")(?=$|[^A-Za-z0-9_.-])", "g");
+
+    for (const match of text.matchAll(playerPattern)) {
+      const start = match.index + (match[1] ? match[1].length : 0);
+      tokens.push({
+        type: "player",
+        start,
+        end: start + match[2].length,
+        color
+      });
+    }
   }
 
-  return "csh-status-idle";
+  return tokens
+    .sort((first, second) => {
+      if (first.start !== second.start) {
+        return first.start - second.start;
+      }
+
+      return second.end - second.start - (first.end - first.start);
+    })
+    .filter((token, index, sortedTokens) => {
+      return !sortedTokens.slice(0, index).some((previous) => token.start < previous.end && token.end > previous.start);
+    });
 }
 
 function formatRange(range) {
@@ -495,6 +668,10 @@ function formatShortPlayerName(playerName) {
   }
 
   return `${player.slice(0, 10)}...`;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function clamp(value, min, max) {

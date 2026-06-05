@@ -8,7 +8,7 @@ export default defineConfig({
   manifest: {
     name: "Colonist Stats Helper",
     description: "Captures Colonist game log entries and shows a small in-game stats overlay.",
-    version: "0.1.0",
+    version: "0.1.1",
     permissions: ["storage"],
     host_permissions: colonistMatches,
     action: {

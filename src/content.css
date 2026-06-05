@@ -4,6 +4,9 @@
   left: 72px;
   z-index: 2147483647;
   width: min(430px, calc(100vw - 96px));
+  min-width: 340px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
   color: #152019;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
@@ -16,7 +19,13 @@
 }
 
 #colonist-stats-helper-root .csh-panel {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 16px);
   overflow: hidden;
+  flex-direction: column;
   border: 1px solid rgba(20, 32, 25, 0.16);
   border-radius: 8px;
   background: rgba(250, 251, 248, 0.96);
@@ -29,7 +38,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 56px;
+  flex: 0 0 auto;
+  min-height: 48px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(20, 32, 25, 0.12);
   background: #ffffff;
@@ -88,15 +98,6 @@
   letter-spacing: 0;
 }
 
-#colonist-stats-helper-root .csh-subtitle {
-  max-width: 260px;
-  overflow: hidden;
-  color: #516157;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 #colonist-stats-helper-root .csh-icon-button,
 #colonist-stats-helper-root button {
   min-height: 28px;
@@ -116,6 +117,14 @@
   line-height: 1;
 }
 
+#colonist-stats-helper-root .csh-title-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
 #colonist-stats-helper-root button:hover {
   background: #edf5ef;
 }
@@ -127,7 +136,9 @@
 
 #colonist-stats-helper-root .csh-body {
   display: grid;
-  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 10px;
 }
 
@@ -135,58 +146,79 @@
   display: none;
 }
 
-#colonist-stats-helper-root .csh-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+#colonist-stats-helper-root.csh-collapsed .csh-panel {
+  overflow: visible;
 }
 
-#colonist-stats-helper-root .csh-metric-card {
-  position: relative;
+#colonist-stats-helper-root.csh-collapsed .csh-titlebar {
+  border-bottom: 0;
+  border-radius: 7px;
+}
+
+#colonist-stats-helper-root.csh-collapsed .csh-resize-handle {
+  display: none;
+}
+
+#colonist-stats-helper-root .csh-main {
+  display: grid;
   min-width: 0;
-  padding: 8px 8px 8px 26px;
-  border: 1px solid rgba(20, 32, 25, 0.11);
+  min-height: 0;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+#colonist-stats-helper-root .csh-action-rail {
+  position: relative;
+  display: inline-grid;
+}
+
+#colonist-stats-helper-root .csh-action-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 6px;
+  width: 82px;
+  padding: 6px;
+  border: 1px solid rgba(20, 32, 25, 0.14);
   border-radius: 6px;
   background: #ffffff;
+  box-shadow: 0 10px 22px rgba(18, 25, 24, 0.18);
 }
 
-#colonist-stats-helper-root .csh-metric-card::before {
-  position: absolute;
-  top: 14px;
-  left: 10px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #9a9f99;
-  content: "";
+#colonist-stats-helper-root .csh-action-menu[hidden] {
+  display: none;
 }
 
-#colonist-stats-helper-root .csh-status-good::before {
-  background: #2f8f46;
-}
-
-#colonist-stats-helper-root .csh-status-warn::before {
-  background: #d98a24;
-}
-
-#colonist-stats-helper-root .csh-status-idle::before {
-  background: #9a9f99;
-}
-
-#colonist-stats-helper-root .csh-metrics span {
-  display: block;
+#colonist-stats-helper-root .csh-action-rail button {
   overflow: hidden;
+  min-height: 30px;
+  padding: 0 6px;
+  background: #ffffff;
+  font-size: 11px;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#colonist-stats-helper-root .csh-metrics small {
-  display: block;
-  color: #617067;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
+#colonist-stats-helper-root .csh-action-menu-toggle {
+  width: 28px;
+  padding: 0;
+  font-size: 16px;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+
+#colonist-stats-helper-root .csh-action-menu-toggle[aria-expanded="true"] {
+  border-color: rgba(47, 143, 70, 0.36);
+  background: rgba(47, 143, 70, 0.12);
+}
+
+#colonist-stats-helper-root .csh-action-rail button:hover {
+  border-color: rgba(47, 143, 70, 0.32);
+  background: rgba(47, 143, 70, 0.1);
 }
 
 #colonist-stats-helper-root .csh-section {
@@ -258,8 +290,9 @@
 
 #colonist-stats-helper-root .csh-table,
 #colonist-stats-helper-root .csh-log {
+  position: relative;
   overflow: auto;
-  max-height: 178px;
+  max-height: min(240px, 48vh);
   border: 1px solid rgba(20, 32, 25, 0.1);
   border-radius: 6px;
   background: #ffffff;
@@ -276,6 +309,8 @@
 }
 
 #colonist-stats-helper-root .csh-resource-row {
+  position: relative;
+  z-index: 0;
   grid-template-columns: minmax(92px, 1fr) 36px repeat(5, 38px);
 }
 
@@ -305,16 +340,32 @@
   text-align: center;
 }
 
+#colonist-stats-helper-root .csh-player-name {
+  color: var(--csh-player-color, #17211a);
+  font-weight: 900;
+}
+
+#colonist-stats-helper-root .csh-player-name-colored {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+#colonist-stats-helper-root .csh-inline-player-name {
+  font-weight: 900;
+}
+
 #colonist-stats-helper-root .csh-resource-header {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 5;
   min-height: 30px;
   background: #f7f9f5;
+  box-shadow: 0 2px 8px rgba(18, 25, 24, 0.08);
 }
 
 #colonist-stats-helper-root .csh-resource-header strong,
 #colonist-stats-helper-root .csh-resource-header span {
+  position: relative;
+  z-index: 1;
   color: #617067;
   font-size: 10px;
   font-weight: 800;
@@ -454,7 +505,7 @@
 #colonist-stats-helper-root .csh-resource-total-row {
   position: sticky;
   bottom: 0;
-  z-index: 1;
+  z-index: 4;
   border-top: 1px solid rgba(20, 32, 25, 0.14);
   background: #fbfaf3;
   box-shadow: 0 -4px 10px rgba(18, 25, 24, 0.06);
@@ -631,6 +682,10 @@
   color: #17211a;
 }
 
+#colonist-stats-helper-root .csh-steal-route .csh-player-name {
+  color: var(--csh-player-color, #17211a);
+}
+
 #colonist-stats-helper-root .csh-steal-resources {
   display: inline-flex;
   gap: 4px;
@@ -696,23 +751,25 @@
   font-size: 12px;
 }
 
-#colonist-stats-helper-root .csh-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+#colonist-stats-helper-root .csh-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  touch-action: none;
 }
 
-#colonist-stats-helper-root .csh-actions button {
-  overflow: hidden;
-  padding: 0 7px;
-  background: #ffffff;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#colonist-stats-helper-root .csh-actions button:hover {
-  border-color: rgba(47, 143, 70, 0.32);
-  background: rgba(47, 143, 70, 0.1);
+#colonist-stats-helper-root .csh-resize-handle::before {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(20, 32, 25, 0.34);
+  border-bottom: 2px solid rgba(20, 32, 25, 0.34);
+  content: "";
 }
 
 @media (max-width: 620px) {

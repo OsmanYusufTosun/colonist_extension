@@ -63,6 +63,7 @@ function startColonistHelper(ctx) {
   const ACTION_PATTERN_GLOBAL = new RegExp("\\b(" + ACTION_WORDS.join("|") + ")\\b", "gi");
   const MAX_AGGREGATE_SPLIT_PARTS = 8;
   const LOG_HINT_PATTERN = /Happy settling|List of commands|placed a|rolled|received|discarded|stole|built|bought|traded|robber|wants to give|proposed counter offer|has won/i;
+  const LOGGED_IN_PLAYER_IMAGE_PATTERN = /\b(?:icon_)?player[_-]?loggedin\b|logged[_-]?in/i;
   const NOISE_PATTERN =
     /^(Happy settling.*|Learn how.*|List of commands.*|\/help|Chat|Place Settlement|Place Road|Roll Dice|End Turn|.*\b\d+\s+(days?|hours?|minutes?)\s+left(?:\s+NEW)?)$/i;
   const PLAYER_TOKEN_TEXT = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}";
@@ -106,7 +107,9 @@ function startColonistHelper(ctx) {
     settings: {
       paused: false,
       overlayLeft: null,
-      overlayTop: null
+      overlayTop: null,
+      overlayWidth: null,
+      overlayHeight: null
     },
     logContainer: null,
     logScrollContainer: null,
@@ -141,7 +144,8 @@ function startColonistHelper(ctx) {
     setMonopolyResource,
     setMonopolyLeftTotal,
     saveMonopolyCorrection,
-    saveOverlayPosition
+    saveOverlayPosition,
+    saveOverlaySize
   };
 
   ctx.addEventListener(window, "message", handlePageMessage);
@@ -509,7 +513,10 @@ function startColonistHelper(ctx) {
       domIndex: record.index,
       domKey: record.key,
       playerPlacement: record.playerPlacement || "",
-      playerPlacements: Array.isArray(record.playerPlacements) ? record.playerPlacements : []
+      playerPlacements: Array.isArray(record.playerPlacements) ? record.playerPlacements : [],
+      isUserAction: Boolean(record.isUserAction),
+      userName: record.userPlayerName || "",
+      userPlacement: record.userPlacement || ""
     };
   }
 
@@ -648,7 +655,10 @@ function startColonistHelper(ctx) {
       element: record.element,
       index: record.index,
       playerPlacement: record.playerPlacement,
-      playerPlacements: record.playerPlacements
+      playerPlacements: record.playerPlacements,
+      isUserAction: Boolean(record.isUserAction),
+      userPlayerName: record.userPlayerName || "",
+      userPlacement: record.userPlacement || ""
     }));
   }
 
@@ -656,7 +666,7 @@ function startColonistHelper(ctx) {
     const rowElements = findLogRowElements(container);
 
     if (rowElements.length) {
-      return rowElements.map((element) => makeVisualRecord(element)).filter((record) => record.text);
+      return rowElements.map((element) => makeVisualRecord(element, { includeIdentity: true })).filter((record) => record.text);
     }
 
     return linesFromVisualText(container).map((text) => ({
@@ -664,7 +674,12 @@ function startColonistHelper(ctx) {
       images: [],
       element: null,
       index: null,
-      key: "text:" + text
+      key: "text:" + text,
+      playerPlacement: "",
+      playerPlacements: [],
+      isUserAction: false,
+      userPlayerName: "",
+      userPlacement: ""
     }));
   }
 
@@ -779,19 +794,26 @@ function startColonistHelper(ctx) {
     return score;
   }
 
-  function makeVisualRecord(element) {
+  function makeVisualRecord(element, options = {}) {
     const images = [];
     const rawText = normalizeLine(readVisualText(element, images));
     const index = getLogRowIndex(element);
     const playerPlacements = extractPlayerPlacements(element, rawText);
     const text = normalizeGameplayLogLine(rawText, { playerPlacements });
-    const playerPlacement = findPlayerPlacement(playerPlacements, parseLogLine(text).player);
+    const parsed = parseLogLine(text);
+    const playerPlacement = findPlayerPlacement(playerPlacements, parsed.player);
+    const userIdentity = options.includeIdentity
+      ? extractLoggedInUserIdentity(getLogRowContextElement(element), text, parsed, playerPlacements)
+      : {};
 
     return {
       text,
       images,
       playerPlacement,
       playerPlacements,
+      isUserAction: Boolean(userIdentity.isUserAction),
+      userPlayerName: userIdentity.userPlayerName || "",
+      userPlacement: userIdentity.userPlacement || "",
       element: describeElement(element),
       index,
       key: Number.isFinite(index) ? "index:" + index + ":" + text : "text:" + text
@@ -807,6 +829,47 @@ function startColonistHelper(ctx) {
 
     const index = Number(indexedElement.getAttribute("data-index"));
     return Number.isFinite(index) ? index : null;
+  }
+
+  function getLogRowContextElement(element) {
+    return element.closest("[data-index]") || element;
+  }
+
+  function extractLoggedInUserIdentity(element, text, parsed, playerPlacements) {
+    if (!hasLoggedInPlayerAvatar(element)) {
+      return {
+        isUserAction: false,
+        userPlayerName: "",
+        userPlacement: ""
+      };
+    }
+
+    const actor = cleanPlayerName(parsed.player);
+    const actorPlacement = findPlayerPlacement(playerPlacements, actor);
+    const fallbackPlacement = playerPlacements.length === 1 ? playerPlacements[0].placement : "";
+
+    return {
+      isUserAction: true,
+      userPlayerName: actor && !isUserPlaceholderName(actor) && !isInvalidPlayerName(actor) ? actor : "",
+      userPlacement: actorPlacement || fallbackPlacement
+    };
+  }
+
+  function hasLoggedInPlayerAvatar(element) {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    const candidates = [element, ...Array.from(element.querySelectorAll("*"))];
+
+    return candidates.some((candidate) => {
+      const descriptor = getImageDescriptor(candidate);
+      return descriptor ? isLoggedInPlayerImageDescriptor(descriptor) : false;
+    });
+  }
+
+  function isLoggedInPlayerImageDescriptor(descriptor) {
+    return LOGGED_IN_PLAYER_IMAGE_PATTERN.test(descriptorToSearchText(descriptor));
   }
 
   function extractPlayerPlacements(element, raw) {
@@ -1385,13 +1448,58 @@ function startColonistHelper(ctx) {
 
   function wasAlreadyRecorded(raw, extra) {
     if (Number.isFinite(extra.domIndex)) {
-      return (
-        state.events.some((eventRecord) => eventRecord.domIndex === extra.domIndex && eventRecord.raw === raw) ||
-        (!extra.historyScan && wasJustRecorded(raw))
-      );
+      if (state.events.some((eventRecord) => eventRecord.domIndex === extra.domIndex && eventRecord.raw === raw)) {
+        return true;
+      }
+
+      return !extra.historyScan && mergeRecentUnindexedDuplicate(raw, extra);
     }
 
     return wasJustRecorded(raw);
+  }
+
+  function mergeRecentUnindexedDuplicate(raw, extra) {
+    const now = Date.now();
+    const recentEvent = state.events
+      .slice()
+      .reverse()
+      .find((eventRecord) => {
+        return (
+          eventRecord.raw === raw &&
+          !Number.isFinite(eventRecord.domIndex) &&
+          now - Number(eventRecord.createdAt || 0) < 2000
+        );
+      });
+
+    if (!recentEvent) {
+      return false;
+    }
+
+    mergeDomMetadata(recentEvent, extra);
+    saveEventsSoon();
+    return true;
+  }
+
+  function mergeDomMetadata(eventRecord, extra) {
+    eventRecord.domIndex = extra.domIndex;
+    eventRecord.domKey = extra.domKey || eventRecord.domKey || "";
+    eventRecord.playerPlacement = extra.playerPlacement || eventRecord.playerPlacement || "";
+
+    if (Array.isArray(extra.playerPlacements) && extra.playerPlacements.length) {
+      eventRecord.playerPlacements = extra.playerPlacements;
+    }
+
+    if (extra.isUserAction) {
+      eventRecord.isUserAction = true;
+    }
+
+    if (extra.userName) {
+      eventRecord.userName = extra.userName;
+    }
+
+    if (extra.userPlacement) {
+      eventRecord.userPlacement = extra.userPlacement;
+    }
   }
 
   function wasJustRecorded(raw) {
@@ -1596,6 +1704,7 @@ function startColonistHelper(ctx) {
       placementByPlayer: new Map(),
       robberies: [],
       userName: "",
+      userPlacement: "",
       lastRobberMover: "",
       nextPlayerOrder: 0,
       issues: []
@@ -1626,6 +1735,7 @@ function startColonistHelper(ctx) {
     const action = (parsed.action || eventRecord.action || "").toLowerCase();
     rememberEventPlayerPlacements(tracker, eventRecord);
     const actorPlacement = getEventPlayerPlacement(eventRecord, parsed.player) || eventRecord.playerPlacement || "";
+    rememberEventUserIdentity(tracker, eventRecord, parsed.player, actorPlacement);
 
     if (/\bmoved\s+Robber\b/i.test(raw)) {
       const actor = canonicalPlayerName(tracker, parsed.player, actorPlacement);
@@ -1716,6 +1826,36 @@ function startColonistHelper(ctx) {
     }
   }
 
+  function rememberEventUserIdentity(tracker, eventRecord, actorName, actorPlacement) {
+    const userPlacement = normalizePlacementKey(eventRecord.userPlacement || (eventRecord.isUserAction ? actorPlacement : ""));
+
+    if (userPlacement) {
+      rememberUserPlacement(tracker, userPlacement);
+    }
+
+    const metadataUserName = cleanPlayerName(eventRecord.userName);
+
+    if (metadataUserName && !isUserPlaceholderName(metadataUserName) && !isInvalidPlayerName(metadataUserName)) {
+      setTrackerUserName(tracker, metadataUserName);
+      return;
+    }
+
+    const actor = cleanPlayerName(actorName);
+
+    if (eventRecord.isUserAction && actor && !isUserPlaceholderName(actor) && !isInvalidPlayerName(actor)) {
+      setTrackerUserName(tracker, actor);
+      return;
+    }
+
+    if (eventRecord.isUserAction || isUserPlaceholderName(actor)) {
+      const placementPlayer = getKnownPlayerByPlacement(tracker, userPlacement || actorPlacement);
+
+      if (placementPlayer) {
+        setTrackerUserName(tracker, placementPlayer);
+      }
+    }
+  }
+
   function rememberPlayerPlacement(tracker, playerName, placement) {
     const player = cleanPlayerName(playerName);
     const placementKey = normalizePlacementKey(placement);
@@ -1724,13 +1864,28 @@ function startColonistHelper(ctx) {
       return;
     }
 
+    const isUserPlaceholder = isUserPlaceholderName(player);
+
+    if (isUserPlaceholder) {
+      tracker.userPlacement = placementKey;
+    }
+
     const nextPlayer = isTransientPlayerName(player) ? makePlacementPlayerName(player, placementKey) : player;
     const existingPlayer = tracker.playerByPlacement.get(placementKey);
 
     if (!existingPlayer) {
       tracker.playerByPlacement.set(placementKey, nextPlayer);
       tracker.placementByPlayer.set(nextPlayer, placementKey);
+
+      if (tracker.userPlacement === placementKey && !isUserPlaceholderName(nextPlayer) && !isTransientPlayerName(nextPlayer)) {
+        setTrackerUserName(tracker, nextPlayer);
+      }
+
       return;
+    }
+
+    if (isUserPlaceholder && !isUserPlaceholderName(existingPlayer)) {
+      setTrackerUserName(tracker, existingPlayer);
     }
 
     const preferredPlayer = choosePreferredPlacementPlayer(existingPlayer, nextPlayer);
@@ -1742,10 +1897,22 @@ function startColonistHelper(ctx) {
     tracker.playerByPlacement.set(placementKey, preferredPlayer);
     tracker.placementByPlayer.set(preferredPlayer, placementKey);
     tracker.placementByPlayer.set(nextPlayer, placementKey);
+
+    if (tracker.userPlacement === placementKey && !isUserPlaceholderName(preferredPlayer) && !isTransientPlayerName(preferredPlayer)) {
+      setTrackerUserName(tracker, preferredPlayer);
+    }
   }
 
   function choosePreferredPlacementPlayer(existingPlayer, nextPlayer) {
     if (existingPlayer === nextPlayer) {
+      return existingPlayer;
+    }
+
+    if (isUserPlaceholderName(existingPlayer) && !isUserPlaceholderName(nextPlayer) && !isTransientPlayerName(nextPlayer)) {
+      return nextPlayer;
+    }
+
+    if (!isUserPlaceholderName(existingPlayer) && isUserPlaceholderName(nextPlayer)) {
       return existingPlayer;
     }
 
@@ -1756,14 +1923,50 @@ function startColonistHelper(ctx) {
     return existingPlayer;
   }
 
+  function rememberUserPlacement(tracker, placement) {
+    const placementKey = normalizePlacementKey(placement);
+
+    if (!placementKey) {
+      return;
+    }
+
+    tracker.userPlacement = placementKey;
+
+    const placementPlayer = getKnownPlayerByPlacement(tracker, placementKey);
+
+    if (placementPlayer) {
+      setTrackerUserName(tracker, placementPlayer);
+    }
+  }
+
   function getEventPlayerPlacement(eventRecord, playerName) {
     const placements = Array.isArray(eventRecord.playerPlacements) ? eventRecord.playerPlacements : [];
     return findPlayerPlacement(placements, playerName);
   }
 
+  function getKnownPlayerByPlacement(tracker, placement) {
+    const placementKey = normalizePlacementKey(placement);
+
+    if (!placementKey) {
+      return "";
+    }
+
+    const player = tracker.playerByPlacement.get(placementKey);
+
+    if (!player || isUserPlaceholderName(player) || isTransientPlayerName(player)) {
+      return "";
+    }
+
+    return player;
+  }
+
   function isTransientPlayerName(playerName) {
     const player = cleanPlayerName(playerName).replace(/\s+#[0-9a-f]{6}$/i, "");
     return TRANSIENT_PLAYER_NAME_PATTERN.test(player);
+  }
+
+  function isUserPlaceholderName(playerName) {
+    return /^you$/i.test(cleanPlayerName(playerName));
   }
 
   function makePlacementPlayerName(playerName, placementKey) {
@@ -2170,11 +2373,21 @@ function startColonistHelper(ctx) {
       return "";
     }
 
-    if (/^you$/i.test(player)) {
-      return tracker.userName || "You";
-    }
-
     const placementKey = normalizePlacementKey(placement);
+
+    if (isUserPlaceholderName(player)) {
+      const placedPlayer = getKnownPlayerByPlacement(tracker, placementKey);
+
+      if (placedPlayer) {
+        return placedPlayer;
+      }
+
+      if (tracker.userName) {
+        return tracker.userName;
+      }
+
+      return getKnownPlayerByPlacement(tracker, tracker.userPlacement) || "You";
+    }
 
     if (placementKey) {
       const placedPlayer = tracker.playerByPlacement.get(placementKey);
@@ -2204,7 +2417,7 @@ function startColonistHelper(ctx) {
   function setTrackerUserName(tracker, playerName) {
     const userName = cleanPlayerName(playerName);
 
-    if (!userName || /^you$/i.test(userName)) {
+    if (!userName || isUserPlaceholderName(userName)) {
       return;
     }
 
@@ -2213,6 +2426,14 @@ function startColonistHelper(ctx) {
     }
 
     tracker.userName = userName;
+    const userPlacement = tracker.placementByPlayer.get(userName) || tracker.userPlacement;
+
+    if (userPlacement) {
+      tracker.userPlacement = userPlacement;
+      tracker.playerByPlacement.set(userPlacement, userName);
+      tracker.placementByPlayer.set(userName, userPlacement);
+    }
+
     mergeTrackedPlayers(tracker, "You", userName);
 
     for (const robbery of tracker.robberies) {
@@ -2299,6 +2520,7 @@ function startColonistHelper(ctx) {
         return {
           player: player.player,
           displayName: formatTrackedPlayerName(tracker, player.player),
+          color: getPlayerColor(tracker, player.player),
           firstSeen: player.firstSeen,
           totalRange: getPlayerTotalRange(tracker, player.player),
           ranges
@@ -2351,7 +2573,22 @@ function startColonistHelper(ctx) {
 
   function isUserTrackedPlayer(tracker, playerName) {
     const player = cleanPlayerName(playerName);
-    return /^you$/i.test(player) || Boolean(tracker.userName && player === tracker.userName);
+    return isUserPlaceholderName(player) || Boolean(tracker.userName && player === tracker.userName);
+  }
+
+  function getPlayerColor(tracker, playerName) {
+    const player = cleanPlayerName(playerName);
+
+    if (!player) {
+      return "";
+    }
+
+    if (isUserPlaceholderName(player) && tracker.userPlacement) {
+      return tracker.userPlacement;
+    }
+
+    const trackedPlayerName = canonicalPlayerName(tracker, player);
+    return normalizePlacementKey(tracker.placementByPlayer.get(trackedPlayerName) || "");
   }
 
   function getPlayerResourceRange(tracker, playerName, resource) {
@@ -2532,6 +2769,12 @@ function startColonistHelper(ctx) {
   function saveOverlayPosition(left, top) {
     state.settings.overlayLeft = left;
     state.settings.overlayTop = top;
+    saveSettingsSoon();
+  }
+
+  function saveOverlaySize(width, height) {
+    state.settings.overlayWidth = width;
+    state.settings.overlayHeight = height;
     saveSettingsSoon();
   }
 
@@ -2938,15 +3181,19 @@ function startColonistHelper(ctx) {
       robberies: getVisibleRobberyRows(resourceTracker).map((robbery) => ({
         id: robbery.id,
         from: robbery.from,
+        fromColor: getPlayerColor(resourceTracker, robbery.from),
         to: robbery.to,
+        toColor: getPlayerColor(resourceTracker, robbery.to),
         possible: robbery.possible.slice(),
         resolved: robbery.resolved,
         raw: robbery.raw
       })),
       monopoly: buildMonopolyViewModel(),
-      latestEvents: state.events.slice(-6).reverse(),
+      latestEvents: buildLatestEventViewModels(resourceTracker),
       overlayLeft: state.settings.overlayLeft,
-      overlayTop: state.settings.overlayTop
+      overlayTop: state.settings.overlayTop,
+      overlayWidth: state.settings.overlayWidth,
+      overlayHeight: state.settings.overlayHeight
     };
 
     overlayReactRoot.render(<ColonistOverlay snapshot={snapshot} actions={overlayActions} />);
@@ -2978,6 +3225,7 @@ function startColonistHelper(ctx) {
         return {
           player: row.player,
           displayName: row.displayName,
+          color: row.color,
           totalRange: row.totalRange,
           value: hasDraftValue ? clampWholeNumber(draft.leftTotals[row.player], 0, 99) : row.totalRange.max
         };
@@ -2990,9 +3238,58 @@ function startColonistHelper(ctx) {
     return {
       eventId: eventRecord.id,
       actor: actor || parsed.player,
+      actorColor: getPlayerColor(monopolyTracker, actor),
       resource,
       victims
     };
+  }
+
+  function buildLatestEventViewModels(resourceTracker) {
+    return state.events.slice(-6).reverse().map((eventRecord) => ({
+      ...eventRecord,
+      playerColors: getEventPlayerColorMap(resourceTracker, eventRecord)
+    }));
+  }
+
+  function getEventPlayerColorMap(tracker, eventRecord) {
+    const playerColors = {};
+    const addColor = (playerName, color) => {
+      const player = cleanPlayerName(playerName);
+      const playerColor = normalizePlacementKey(color);
+
+      if (!player || !playerColor) {
+        return;
+      }
+
+      playerColors[player] = playerColor;
+    };
+
+    for (const player of tracker.players.keys()) {
+      addColor(player, getPlayerColor(tracker, player));
+    }
+
+    if (tracker.userName) {
+      addColor("You", getPlayerColor(tracker, tracker.userName));
+    }
+
+    const placements = Array.isArray(eventRecord.playerPlacements) ? eventRecord.playerPlacements : [];
+
+    for (const placement of placements) {
+      const color = normalizePlacementKey(placement.placement);
+      const canonicalPlayer = canonicalPlayerName(tracker, placement.name, color);
+
+      addColor(placement.name, color);
+      addColor(canonicalPlayer, color || getPlayerColor(tracker, canonicalPlayer));
+    }
+
+    const parsed = parseLogLine(eventRecord.raw || "");
+    const actorPlacement = getEventPlayerPlacement(eventRecord, parsed.player) || eventRecord.playerPlacement || "";
+    const actor = canonicalPlayerName(tracker, parsed.player, actorPlacement);
+
+    addColor(parsed.player, getPlayerColor(tracker, actor) || actorPlacement);
+    addColor(actor, getPlayerColor(tracker, actor) || actorPlacement);
+
+    return playerColors;
   }
 
   function buildStatusText(resourceTracker) {
