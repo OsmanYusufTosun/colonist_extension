@@ -1,0 +1,723 @@
+#colonist-stats-helper-root {
+  position: fixed;
+  top: 12px;
+  left: 72px;
+  z-index: 2147483647;
+  width: min(430px, calc(100vw - 96px));
+  color: #152019;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+#colonist-stats-helper-root,
+#colonist-stats-helper-root * {
+  box-sizing: border-box;
+}
+
+#colonist-stats-helper-root .csh-panel {
+  overflow: hidden;
+  border: 1px solid rgba(20, 32, 25, 0.16);
+  border-radius: 8px;
+  background: rgba(250, 251, 248, 0.96);
+  box-shadow: 0 10px 28px rgba(18, 25, 24, 0.22);
+  backdrop-filter: blur(10px);
+}
+
+#colonist-stats-helper-root .csh-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(20, 32, 25, 0.12);
+  background: #ffffff;
+  cursor: grab;
+  user-select: none;
+}
+
+#colonist-stats-helper-root .csh-titlebar:active {
+  cursor: grabbing;
+}
+
+#colonist-stats-helper-root .csh-brand {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+#colonist-stats-helper-root .csh-mark {
+  position: relative;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 30px;
+}
+
+#colonist-stats-helper-root .csh-mark-card {
+  position: absolute;
+  width: 19px;
+  height: 25px;
+  border: 1px solid rgba(20, 32, 25, 0.24);
+  border-radius: 4px;
+  background: var(--csh-resource);
+  box-shadow: 0 3px 8px rgba(18, 25, 24, 0.16);
+}
+
+#colonist-stats-helper-root .csh-mark-card:nth-child(1) {
+  left: 1px;
+  top: 4px;
+  transform: rotate(-8deg);
+}
+
+#colonist-stats-helper-root .csh-mark-card:nth-child(2) {
+  left: 10px;
+  top: 1px;
+}
+
+#colonist-stats-helper-root .csh-mark-card:nth-child(3) {
+  left: 19px;
+  top: 5px;
+  transform: rotate(8deg);
+}
+
+#colonist-stats-helper-root .csh-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+#colonist-stats-helper-root .csh-subtitle {
+  max-width: 260px;
+  overflow: hidden;
+  color: #516157;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#colonist-stats-helper-root .csh-icon-button,
+#colonist-stats-helper-root button {
+  min-height: 28px;
+  border: 1px solid rgba(20, 32, 25, 0.16);
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2b24;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#colonist-stats-helper-root .csh-icon-button {
+  width: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+#colonist-stats-helper-root button:hover {
+  background: #edf5ef;
+}
+
+#colonist-stats-helper-root button:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+#colonist-stats-helper-root .csh-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+#colonist-stats-helper-root.csh-collapsed .csh-body {
+  display: none;
+}
+
+#colonist-stats-helper-root .csh-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+#colonist-stats-helper-root .csh-metric-card {
+  position: relative;
+  min-width: 0;
+  padding: 8px 8px 8px 26px;
+  border: 1px solid rgba(20, 32, 25, 0.11);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+#colonist-stats-helper-root .csh-metric-card::before {
+  position: absolute;
+  top: 14px;
+  left: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9a9f99;
+  content: "";
+}
+
+#colonist-stats-helper-root .csh-status-good::before {
+  background: #2f8f46;
+}
+
+#colonist-stats-helper-root .csh-status-warn::before {
+  background: #d98a24;
+}
+
+#colonist-stats-helper-root .csh-status-idle::before {
+  background: #9a9f99;
+}
+
+#colonist-stats-helper-root .csh-metrics span {
+  display: block;
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#colonist-stats-helper-root .csh-metrics small {
+  display: block;
+  color: #617067;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+#colonist-stats-helper-root .csh-section {
+  min-width: 0;
+}
+
+#colonist-stats-helper-root .csh-section-title {
+  margin: 0 0 5px;
+  color: #445047;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+#colonist-stats-helper-root .csh-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 22px;
+  margin: 0 0 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #445047;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+#colonist-stats-helper-root .csh-section-toggle:hover {
+  background: transparent;
+  color: #1f2b24;
+}
+
+#colonist-stats-helper-root .csh-section-toggle-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#colonist-stats-helper-root .csh-section-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(20, 32, 25, 0.08);
+  color: #536058;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+#colonist-stats-helper-root .csh-section-caret {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid rgba(20, 32, 25, 0.14);
+  border-radius: 5px;
+  background: #ffffff;
+  color: #1f2b24;
+  font-size: 13px;
+  line-height: 1;
+}
+
+#colonist-stats-helper-root .csh-table,
+#colonist-stats-helper-root .csh-log {
+  overflow: auto;
+  max-height: 178px;
+  border: 1px solid rgba(20, 32, 25, 0.1);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+#colonist-stats-helper-root .csh-resource-row,
+#colonist-stats-helper-root .csh-event-row {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(20, 32, 25, 0.08);
+}
+
+#colonist-stats-helper-root .csh-resource-row {
+  grid-template-columns: minmax(92px, 1fr) 36px repeat(5, 38px);
+}
+
+#colonist-stats-helper-root .csh-event-row {
+  grid-template-columns: 36px minmax(0, 1fr);
+  min-height: 28px;
+  background: #ffffff;
+}
+
+#colonist-stats-helper-root .csh-event-row:nth-child(2n) {
+  background: #fafbf8;
+}
+
+#colonist-stats-helper-root .csh-resource-row:last-child,
+#colonist-stats-helper-root .csh-event-row:last-child {
+  border-bottom: 0;
+}
+
+#colonist-stats-helper-root .csh-resource-row strong,
+#colonist-stats-helper-root .csh-event-row span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#colonist-stats-helper-root .csh-resource-row span {
+  text-align: center;
+}
+
+#colonist-stats-helper-root .csh-resource-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 30px;
+  background: #f7f9f5;
+}
+
+#colonist-stats-helper-root .csh-resource-header strong,
+#colonist-stats-helper-root .csh-resource-header span {
+  color: #617067;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+#colonist-stats-helper-root .csh-resource-head {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+#colonist-stats-helper-root .csh-resource-icon {
+  position: relative;
+  display: inline-grid;
+  width: 18px;
+  height: 25px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--csh-resource) 38%, rgba(20, 32, 25, 0.18));
+  border-radius: 3px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0 18%, transparent 18%),
+    linear-gradient(180deg, #ffffff, var(--csh-resource-soft));
+  box-shadow: 0 1px 3px rgba(18, 25, 24, 0.16);
+  vertical-align: middle;
+}
+
+#colonist-stats-helper-root .csh-resource-icon::before {
+  position: absolute;
+  inset: 2px;
+  border-radius: 2px;
+  background: var(--csh-resource);
+  content: "";
+  opacity: 0.12;
+}
+
+#colonist-stats-helper-root .csh-resource-icon-mark {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+#colonist-stats-helper-root .csh-resource-lumber .csh-resource-icon-mark {
+  width: 14px;
+  height: 15px;
+  background: #23743a;
+  clip-path: polygon(50% 4%, 83% 45%, 66% 45%, 92% 82%, 61% 82%, 61% 96%, 39% 96%, 39% 82%, 8% 82%, 34% 45%, 17% 45%);
+}
+
+#colonist-stats-helper-root .csh-resource-brick .csh-resource-icon-mark {
+  width: 14px;
+  height: 12px;
+  border-radius: 2px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 4px, rgba(255, 255, 255, 0.42) 4px 5px),
+    repeating-linear-gradient(90deg, #bd5741 0 6px, #8f3c2d 6px 7px);
+}
+
+#colonist-stats-helper-root .csh-resource-wool .csh-resource-icon-mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #82c979;
+  box-shadow:
+    -4px 2px 0 #82c979,
+    4px 2px 0 #82c979,
+    0 -4px 0 #9edc8d,
+    0 4px 0 #5caa57;
+}
+
+#colonist-stats-helper-root .csh-resource-grain .csh-resource-icon-mark {
+  width: 14px;
+  height: 15px;
+  background:
+    radial-gradient(ellipse at 32% 28%, #e8bf4a 0 34%, transparent 38%),
+    radial-gradient(ellipse at 68% 42%, #dba83a 0 34%, transparent 38%),
+    radial-gradient(ellipse at 35% 59%, #dba83a 0 34%, transparent 38%),
+    linear-gradient(90deg, transparent 46%, #9a711e 46% 56%, transparent 56%);
+}
+
+#colonist-stats-helper-root .csh-resource-ore .csh-resource-icon-mark {
+  width: 12px;
+  height: 11px;
+  border-radius: 45% 55% 50% 40%;
+  background: #6f7884;
+  box-shadow:
+    -3px 4px 0 #59616b,
+    3px -2px 0 #8b949f;
+}
+
+#colonist-stats-helper-root .csh-resource-cell {
+  position: relative;
+  display: grid;
+  min-height: 26px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--csh-resource) 34%, transparent);
+  border-radius: 6px;
+  background: var(--csh-resource-soft);
+  color: var(--csh-resource-text);
+  font-size: 12px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+#colonist-stats-helper-root .csh-total-cell {
+  display: grid;
+  min-height: 26px;
+  place-items: center;
+  border: 1px solid rgba(20, 32, 25, 0.12);
+  border-radius: 6px;
+  background: #f6f8f5;
+  color: #26352b;
+  font-size: 12px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+#colonist-stats-helper-root .csh-resource-fill {
+  position: absolute;
+  inset: auto auto 0 0;
+  width: var(--csh-fill);
+  height: 100%;
+  background: var(--csh-resource);
+  opacity: 0.22;
+}
+
+#colonist-stats-helper-root .csh-resource-value {
+  position: relative;
+  z-index: 1;
+}
+
+#colonist-stats-helper-root .csh-resource-total-row {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  border-top: 1px solid rgba(20, 32, 25, 0.14);
+  background: #fbfaf3;
+  box-shadow: 0 -4px 10px rgba(18, 25, 24, 0.06);
+}
+
+#colonist-stats-helper-root .csh-resource-total-row strong {
+  color: #26352b;
+  font-weight: 900;
+}
+
+#colonist-stats-helper-root .csh-total-resource-cell {
+  border-width: 2px;
+  background: color-mix(in srgb, var(--csh-resource-soft) 78%, #ffffff);
+}
+
+#colonist-stats-helper-root .csh-uncertain {
+  border-style: dashed;
+  color: #4f3421;
+}
+
+#colonist-stats-helper-root .csh-resource-lumber {
+  --csh-resource: #2f8f46;
+  --csh-resource-soft: rgba(47, 143, 70, 0.12);
+  --csh-resource-text: #174d26;
+}
+
+#colonist-stats-helper-root .csh-resource-brick {
+  --csh-resource: #bd5741;
+  --csh-resource-soft: rgba(189, 87, 65, 0.13);
+  --csh-resource-text: #743023;
+}
+
+#colonist-stats-helper-root .csh-resource-wool {
+  --csh-resource: #60a95a;
+  --csh-resource-soft: rgba(96, 169, 90, 0.14);
+  --csh-resource-text: #315f2d;
+}
+
+#colonist-stats-helper-root .csh-resource-grain {
+  --csh-resource: #d3a12d;
+  --csh-resource-soft: rgba(211, 161, 45, 0.16);
+  --csh-resource-text: #73521a;
+}
+
+#colonist-stats-helper-root .csh-resource-ore {
+  --csh-resource: #6f7884;
+  --csh-resource-soft: rgba(111, 120, 132, 0.15);
+  --csh-resource-text: #38414b;
+}
+
+#colonist-stats-helper-root .csh-steals:empty {
+  display: none;
+}
+
+#colonist-stats-helper-root .csh-monopoly:empty {
+  display: none;
+}
+
+#colonist-stats-helper-root .csh-monopoly-panel {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(47, 143, 70, 0.24);
+  border-radius: 6px;
+  background: rgba(47, 143, 70, 0.08);
+}
+
+#colonist-stats-helper-root .csh-monopoly-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 116px;
+  gap: 7px;
+  align-items: center;
+}
+
+#colonist-stats-helper-root .csh-monopoly-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#colonist-stats-helper-root .csh-monopoly select,
+#colonist-stats-helper-root .csh-monopoly input {
+  width: 100%;
+  min-height: 28px;
+  border: 1px solid rgba(20, 32, 25, 0.16);
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2b24;
+  font: inherit;
+  font-weight: 800;
+}
+
+#colonist-stats-helper-root .csh-monopoly select {
+  padding: 0 6px;
+}
+
+#colonist-stats-helper-root .csh-monopoly-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+#colonist-stats-helper-root .csh-monopoly-note {
+  color: #536058;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+#colonist-stats-helper-root .csh-monopoly-victim {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 5px;
+  align-items: center;
+}
+
+#colonist-stats-helper-root .csh-monopoly-victim span {
+  overflow: hidden;
+  color: #39473d;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#colonist-stats-helper-root .csh-monopoly-victim small {
+  color: #617067;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+#colonist-stats-helper-root .csh-monopoly input {
+  padding: 0 4px;
+  text-align: center;
+}
+
+#colonist-stats-helper-root .csh-monopoly button {
+  padding: 0 8px;
+  border-color: rgba(47, 143, 70, 0.34);
+  background: #ffffff;
+}
+
+#colonist-stats-helper-root .csh-steal-list {
+  display: grid;
+  gap: 6px;
+}
+
+#colonist-stats-helper-root .csh-steal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 7px;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid rgba(20, 32, 25, 0.1);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+#colonist-stats-helper-root .csh-steal-pending {
+  border-color: rgba(189, 87, 65, 0.32);
+  background: rgba(189, 87, 65, 0.08);
+}
+
+#colonist-stats-helper-root .csh-steal-route {
+  min-width: 0;
+  overflow: hidden;
+  color: #39473d;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#colonist-stats-helper-root .csh-steal-route strong {
+  color: #17211a;
+}
+
+#colonist-stats-helper-root .csh-steal-resources {
+  display: inline-flex;
+  gap: 4px;
+}
+
+#colonist-stats-helper-root .csh-resource-tag {
+  display: inline-grid;
+  min-width: 22px;
+  height: 24px;
+  place-items: center;
+}
+
+#colonist-stats-helper-root .csh-resource-tag .csh-resource-icon {
+  width: 16px;
+  height: 22px;
+}
+
+#colonist-stats-helper-root .csh-event-text {
+  min-width: 0;
+}
+
+#colonist-stats-helper-root .csh-inline-resource-icon {
+  width: 14px;
+  height: 20px;
+  margin: 0 2px;
+  vertical-align: -5px;
+}
+
+#colonist-stats-helper-root .csh-inline-resource-icon .csh-resource-icon-mark {
+  transform: scale(0.82);
+}
+
+#colonist-stats-helper-root .csh-steal-state {
+  min-width: 52px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(20, 32, 25, 0.08);
+  color: #536058;
+  font-size: 10px;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+#colonist-stats-helper-root .csh-steal-pending .csh-steal-state {
+  background: rgba(189, 87, 65, 0.16);
+  color: #743023;
+}
+
+#colonist-stats-helper-root .csh-source {
+  border-radius: 5px;
+  background: #e7eef2;
+  color: #35503e;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+}
+
+#colonist-stats-helper-root .csh-empty {
+  padding: 10px;
+  color: #617067;
+  font-size: 12px;
+}
+
+#colonist-stats-helper-root .csh-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+#colonist-stats-helper-root .csh-actions button {
+  overflow: hidden;
+  padding: 0 7px;
+  background: #ffffff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#colonist-stats-helper-root .csh-actions button:hover {
+  border-color: rgba(47, 143, 70, 0.32);
+  background: rgba(47, 143, 70, 0.1);
+}
+
+@media (max-width: 620px) {
+  #colonist-stats-helper-root {
+    left: 8px;
+    width: calc(100vw - 16px);
+  }
+}
