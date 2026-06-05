@@ -1,0 +1,48 @@
+name: Release extension
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension ZIP
+        run: npm run zip
+
+      - name: Use stable ZIP filename
+        run: |
+          mkdir -p dist
+          cp output/*-chrome.zip dist/colonist-stats-helper-chrome.zip
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: colonist-stats-helper-chrome
+          path: dist/colonist-stats-helper-chrome.zip
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/colonist-stats-helper-chrome.zip
+          generate_release_notes: true

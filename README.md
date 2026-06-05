@@ -2,6 +2,23 @@
 
 Small WXT + React Chrome/Chromium extension for capturing Colonist in-game log entries and turning them into a live resource ledger.
 
+## Download
+
+Download the latest packaged extension ZIP after the first release is published:
+
+```text
+https://github.com/OsmanYusufTosun/colonist_extension/releases/latest/download/colonist-stats-helper-chrome.zip
+```
+
+Chrome does not allow true one-click installation for extensions outside the Chrome Web Store. After downloading:
+
+1. Right-click the ZIP and choose `Extract All`.
+2. Open `chrome://extensions`.
+3. Enable `Developer mode`.
+4. Choose `Load unpacked`.
+5. Select the extracted extension folder.
+6. Open or refresh a game on `https://colonist.io`.
+
 ## What it reads
 
 The extension has two capture paths:
@@ -29,6 +46,25 @@ WXT writes the development extension to `output/chrome-mv3`.
 ```sh
 npm run build
 ```
+
+To create the same installable ZIP that users download from GitHub Releases:
+
+```sh
+npm run zip
+```
+
+The ZIP is written to `output/colonist-stats-helper-0.1.0-chrome.zip`.
+
+## Publish a Download
+
+Push a version tag to GitHub:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions will build the extension and attach `colonist-stats-helper-chrome.zip` to the release. Users can download that file from the latest release link above.
 
 ## Load it locally
 
