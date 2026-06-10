@@ -4,7 +4,7 @@
   left: 72px;
   z-index: 2147483647;
   width: min(430px, calc(100vw - 96px));
-  min-width: 340px;
+  min-width: min(340px, calc(100vw - 16px));
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   color: #152019;
@@ -755,10 +755,12 @@
   position: absolute;
   right: 0;
   bottom: 0;
+  z-index: 10;
   width: 20px;
   height: 20px;
   cursor: nwse-resize;
   touch-action: none;
+  user-select: none;
 }
 
 #colonist-stats-helper-root .csh-resize-handle::before {

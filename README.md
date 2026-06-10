@@ -53,15 +53,15 @@ To create the same installable ZIP that users download from GitHub Releases:
 npm run zip
 ```
 
-The ZIP is written to `output/colonist-stats-helper-0.1.0-chrome.zip`.
+The ZIP is written to `output/colonist-stats-helper-0.1.2-chrome.zip`.
 
 ## Publish a Download
 
 Push a version tag to GitHub:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 GitHub Actions will build the extension and attach `colonist-stats-helper-chrome.zip` to the release. Users can download that file from the latest release link above.

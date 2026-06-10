@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const RESOURCE_TYPES = ["lumber", "brick", "wool", "grain", "ore"];
+const MIN_OVERLAY_WIDTH = 340;
+const MIN_OVERLAY_HEIGHT = 220;
+const VIEWPORT_MARGIN = 8;
 const RESOURCE_LABELS = {
   lumber: { label: "Lumber" },
   brick: { label: "Brick" },
@@ -27,6 +30,13 @@ export default function ColonistOverlay({ snapshot, actions }) {
     width: Number.isFinite(snapshot.overlayWidth) ? snapshot.overlayWidth : null,
     height: Number.isFinite(snapshot.overlayHeight) ? snapshot.overlayHeight : null
   }));
+
+  useEffect(() => {
+    return () => {
+      finishResize(null, { save: false });
+      dragStateRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (dragStateRef.current || resizeStateRef.current) {
@@ -102,8 +112,8 @@ export default function ColonistOverlay({ snapshot, actions }) {
       return;
     }
 
-    const nextLeft = clamp(dragState.startLeft + event.clientX - dragState.startX, 0, window.innerWidth - root.offsetWidth);
-    const nextTop = clamp(dragState.startTop + event.clientY - dragState.startY, 0, window.innerHeight - root.offsetHeight);
+    const nextLeft = clamp(dragState.startLeft + event.clientX - dragState.startX, 0, Math.max(0, window.innerWidth - root.offsetWidth));
+    const nextTop = clamp(dragState.startTop + event.clientY - dragState.startY, 0, Math.max(0, window.innerHeight - root.offsetHeight));
 
     dragState.left = nextLeft;
     dragState.top = nextTop;
@@ -121,7 +131,7 @@ export default function ColonistOverlay({ snapshot, actions }) {
     }
 
     dragStateRef.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    safelyReleasePointerCapture(event.currentTarget, event.pointerId);
 
     if (Number.isFinite(dragState.left) && Number.isFinite(dragState.top)) {
       actions.saveOverlayPosition(dragState.left, dragState.top);
@@ -135,15 +145,34 @@ export default function ColonistOverlay({ snapshot, actions }) {
       return;
     }
 
+    event.preventDefault();
     event.stopPropagation();
+    const pointerTarget = event.currentTarget;
+    const ownerDocument = pointerTarget.ownerDocument || document;
+    const ownerWindow = ownerDocument.defaultView || window;
+    const cleanup = () => {
+      ownerDocument.removeEventListener("pointermove", handleResizePointerMove, true);
+      ownerDocument.removeEventListener("pointerup", handleResizePointerUp, true);
+      ownerDocument.removeEventListener("pointercancel", handleResizePointerCancel, true);
+      ownerWindow.removeEventListener("blur", handleResizeWindowBlur, true);
+    };
+
     resizeStateRef.current = {
       pointerId: event.pointerId,
+      pointerTarget,
+      cleanup,
       startX: event.clientX,
       startY: event.clientY,
       startWidth: root.offsetWidth,
-      startHeight: root.offsetHeight
+      startHeight: root.offsetHeight,
+      width: root.offsetWidth,
+      height: root.offsetHeight
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    safelySetPointerCapture(pointerTarget, event.pointerId);
+    ownerDocument.addEventListener("pointermove", handleResizePointerMove, true);
+    ownerDocument.addEventListener("pointerup", handleResizePointerUp, true);
+    ownerDocument.addEventListener("pointercancel", handleResizePointerCancel, true);
+    ownerWindow.addEventListener("blur", handleResizeWindowBlur, true);
   }
 
   function handleResizePointerMove(event) {
@@ -154,11 +183,10 @@ export default function ColonistOverlay({ snapshot, actions }) {
       return;
     }
 
-    const rect = root.getBoundingClientRect();
-    const maxWidth = Math.max(340, window.innerWidth - rect.left - 8);
-    const maxHeight = Math.max(220, window.innerHeight - rect.top - 8);
-    const nextWidth = clamp(resizeState.startWidth + event.clientX - resizeState.startX, 340, maxWidth);
-    const nextHeight = clamp(resizeState.startHeight + event.clientY - resizeState.startY, 220, maxHeight);
+    event.preventDefault();
+    const bounds = getResizeBounds(root);
+    const nextWidth = clamp(resizeState.startWidth + event.clientX - resizeState.startX, bounds.minWidth, bounds.maxWidth);
+    const nextHeight = clamp(resizeState.startHeight + event.clientY - resizeState.startY, bounds.minHeight, bounds.maxHeight);
 
     resizeState.width = nextWidth;
     resizeState.height = nextHeight;
@@ -169,16 +197,29 @@ export default function ColonistOverlay({ snapshot, actions }) {
   }
 
   function handleResizePointerUp(event) {
+    finishResize(event, { save: true });
+  }
+
+  function handleResizePointerCancel(event) {
+    finishResize(event, { save: true });
+  }
+
+  function handleResizeWindowBlur() {
+    finishResize(null, { save: true });
+  }
+
+  function finishResize(event, { save }) {
     const resizeState = resizeStateRef.current;
 
-    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+    if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) {
       return;
     }
 
     resizeStateRef.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    resizeState.cleanup();
+    safelyReleasePointerCapture(resizeState.pointerTarget, resizeState.pointerId);
 
-    if (Number.isFinite(resizeState.width) && Number.isFinite(resizeState.height)) {
+    if (save && Number.isFinite(resizeState.width) && Number.isFinite(resizeState.height)) {
       actions.saveOverlaySize(resizeState.width, resizeState.height);
     }
   }
@@ -204,6 +245,7 @@ export default function ColonistOverlay({ snapshot, actions }) {
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
         >
           <div className="csh-brand">
             <div className="csh-mark" aria-hidden="true">
@@ -288,8 +330,6 @@ export default function ColonistOverlay({ snapshot, actions }) {
           data-role="resize-handle"
           title="Resize"
           onPointerDown={handleResizePointerDown}
-          onPointerMove={handleResizePointerMove}
-          onPointerUp={handleResizePointerUp}
         />
       </div>
     </div>
@@ -674,6 +714,40 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function getResizeBounds(root) {
+  const rect = root.getBoundingClientRect();
+  const maxWidth = Math.max(0, window.innerWidth - rect.left - VIEWPORT_MARGIN);
+  const maxHeight = Math.max(0, window.innerHeight - rect.top - VIEWPORT_MARGIN);
+
+  return {
+    minWidth: Math.min(MIN_OVERLAY_WIDTH, maxWidth),
+    minHeight: Math.min(MIN_OVERLAY_HEIGHT, maxHeight),
+    maxWidth,
+    maxHeight
+  };
+}
+
+function safelySetPointerCapture(target, pointerId) {
+  try {
+    target.setPointerCapture(pointerId);
+  } catch (_error) {
+    // Document-level listeners keep the resize active if capture is unavailable.
+  }
+}
+
+function safelyReleasePointerCapture(target, pointerId) {
+  try {
+    if (target.hasPointerCapture(pointerId)) {
+      target.releasePointerCapture(pointerId);
+    }
+  } catch (_error) {
+    // The browser may already have released capture after pointer cancellation.
+  }
+}
+
 function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
+  const lower = Math.min(min, max);
+  const upper = Math.max(min, max);
+
+  return Math.min(Math.max(value, lower), upper);
 }

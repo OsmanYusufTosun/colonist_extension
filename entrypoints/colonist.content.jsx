@@ -33,6 +33,7 @@ function startColonistHelper(ctx) {
   const SAVE_DELAY_MS = 250;
   const HISTORY_SCAN_SETTLE_MS = 90;
   const NEAR_BOTTOM_PX = 48;
+  const LOCAL_USER_SCAN_INTERVAL_MS = 5000;
 
   const ACTION_WORDS = [
     "placed",
@@ -63,7 +64,6 @@ function startColonistHelper(ctx) {
   const ACTION_PATTERN_GLOBAL = new RegExp("\\b(" + ACTION_WORDS.join("|") + ")\\b", "gi");
   const MAX_AGGREGATE_SPLIT_PARTS = 8;
   const LOG_HINT_PATTERN = /Happy settling|List of commands|placed a|rolled|received|discarded|stole|built|bought|traded|robber|wants to give|proposed counter offer|has won/i;
-  const LOGGED_IN_PLAYER_IMAGE_PATTERN = /\b(?:icon_)?player[_-]?loggedin\b|logged[_-]?in/i;
   const NOISE_PATTERN =
     /^(Happy settling.*|Learn how.*|List of commands.*|\/help|Chat|Place Settlement|Place Road|Roll Dice|End Turn|.*\b\d+\s+(days?|hours?|minutes?)\s+left(?:\s+NEW)?)$/i;
   const PLAYER_TOKEN_TEXT = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}";
@@ -124,6 +124,10 @@ function startColonistHelper(ctx) {
     wsTextSamples: [],
     historyScanRunning: false,
     historyScanStatus: "",
+    localUserName: "",
+    localUserSource: "",
+    localUserDomCandidates: [],
+    lastLocalUserScanAt: 0,
     lastDomReadAt: null,
     lastWsAt: null,
     monopolyDrafts: {},
@@ -172,6 +176,336 @@ function startColonistHelper(ctx) {
     return new Promise((resolve) => {
       chrome.storage.local.set(values, resolve);
     });
+  }
+
+  function syncLocalUserIdentity(force = false) {
+    const now = Date.now();
+
+    if (!force && now - state.lastLocalUserScanAt < LOCAL_USER_SCAN_INTERVAL_MS) {
+      return;
+    }
+
+    state.lastLocalUserScanAt = now;
+    const domUserName = detectDomLocalUserName();
+
+    if (domUserName) {
+      state.localUserName = domUserName;
+      state.localUserSource = "profile-dom";
+      return;
+    }
+
+    const storedUserName = detectStoredLocalUserName();
+
+    if (storedUserName && state.localUserSource !== "profile-dom") {
+      state.localUserName = storedUserName;
+      state.localUserSource = "storage";
+    }
+  }
+
+  function detectDomLocalUserName() {
+    const candidates = collectDomLocalUserNameCandidates();
+    state.localUserDomCandidates = candidates.slice(0, 8).map(describeLocalUserDomCandidate);
+    return chooseDomLocalUserName(candidates);
+  }
+
+  function collectDomLocalUserNameCandidates() {
+    const candidates = [];
+    const nodes = Array.from(document.querySelectorAll("span, div, button, [aria-label], [title]"));
+
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement) || shouldIgnoreLocalUserCandidateElement(node) || !isVisibleEnough(node)) {
+        continue;
+      }
+
+      const rect = node.getBoundingClientRect();
+
+      if (!isInLocalProfileRegion(rect)) {
+        continue;
+      }
+
+      const values = [getDirectText(node), node.getAttribute("aria-label") || "", node.getAttribute("title") || ""];
+
+      for (const value of values) {
+        const name = cleanPlayerName(value);
+
+        if (!isLikelyProfileUserName(name)) {
+          continue;
+        }
+
+        candidates.push({
+          name,
+          score: scoreDomLocalUserNameCandidate(node, rect),
+          rect
+        });
+      }
+    }
+
+    return mergeLocalUserDomCandidates(candidates).sort((first, second) => second.score - first.score);
+  }
+
+  function shouldIgnoreLocalUserCandidateElement(element) {
+    return (
+      element.id === "colonist-stats-helper-root" ||
+      Boolean(element.closest("#colonist-stats-helper-root")) ||
+      Boolean(state.logContainer && (state.logContainer === element || state.logContainer.contains(element)))
+    );
+  }
+
+  function isInLocalProfileRegion(rect) {
+    const viewportWidth = Math.max(window.innerWidth || 0, 1);
+    const viewportHeight = Math.max(window.innerHeight || 0, 1);
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    return (
+      centerX >= viewportWidth * 0.62 &&
+      centerY >= viewportHeight * 0.82 &&
+      rect.width >= 8 &&
+      rect.width <= viewportWidth * 0.35 &&
+      rect.height >= 8 &&
+      rect.height <= viewportHeight * 0.18
+    );
+  }
+
+  function isLikelyProfileUserName(name) {
+    if (!isLikelyStoredPlayerName(name)) {
+      return false;
+    }
+
+    return !/^(bank|chat|colonist|dice|end|game|menu|profile|resources?|settings|shop|trade|turn|vps?)$/i.test(name);
+  }
+
+  function scoreDomLocalUserNameCandidate(element, rect) {
+    const viewportWidth = Math.max(window.innerWidth || 0, 1);
+    const viewportHeight = Math.max(window.innerHeight || 0, 1);
+    const style = window.getComputedStyle(element);
+    const descriptor = getStorageKeyWords(
+      [
+        element.id,
+        element.className,
+        element.getAttribute("data-testid") || "",
+        element.getAttribute("aria-label") || "",
+        describeAncestorClasses(element, 3)
+      ].join(" ")
+    );
+    let score = 6;
+
+    score += Math.max(0, Math.round(((rect.right / viewportWidth) - 0.62) * 8));
+    score += Math.max(0, Math.round(((rect.bottom / viewportHeight) - 0.82) * 20));
+
+    if (Number(style.fontWeight || "0") >= 600) {
+      score += 2;
+    }
+
+    if (hasAnyWord(descriptor, ["account", "avatar", "me", "name", "player", "profile", "self", "user", "username"])) {
+      score += 4;
+    }
+
+    return score;
+  }
+
+  function describeAncestorClasses(element, depth) {
+    const parts = [];
+    let node = element.parentElement;
+
+    while (node && node instanceof HTMLElement && parts.length < depth) {
+      parts.push([node.id, node.className, node.getAttribute("data-testid") || ""].filter(Boolean).join(" "));
+      node = node.parentElement;
+    }
+
+    return parts.join(" ");
+  }
+
+  function mergeLocalUserDomCandidates(candidates) {
+    const bestByName = new Map();
+
+    for (const candidate of candidates) {
+      const existing = bestByName.get(candidate.name);
+
+      if (!existing || candidate.score > existing.score) {
+        bestByName.set(candidate.name, candidate);
+      }
+    }
+
+    return Array.from(bestByName.values());
+  }
+
+  function chooseDomLocalUserName(candidates) {
+    if (!candidates.length || candidates[0].score < 7) {
+      return "";
+    }
+
+    if (candidates[1] && candidates[0].score - candidates[1].score < 2) {
+      return "";
+    }
+
+    return candidates[0].name;
+  }
+
+  function describeLocalUserDomCandidate(candidate) {
+    return {
+      name: candidate.name,
+      score: candidate.score,
+      rect: {
+        left: Math.round(candidate.rect.left),
+        top: Math.round(candidate.rect.top),
+        width: Math.round(candidate.rect.width),
+        height: Math.round(candidate.rect.height)
+      }
+    };
+  }
+
+  function detectStoredLocalUserName() {
+    const candidates = [];
+
+    try {
+      collectStorageUserNameCandidates(window.localStorage, "localStorage", candidates);
+    } catch (_error) {
+      // Accessing storage itself can throw in locked-down browser contexts.
+    }
+
+    try {
+      collectStorageUserNameCandidates(window.sessionStorage, "sessionStorage", candidates);
+    } catch (_error) {
+      // Accessing storage itself can throw in locked-down browser contexts.
+    }
+
+    return chooseStoredLocalUserName(candidates);
+  }
+
+  function collectStorageUserNameCandidates(storage, storageType, candidates) {
+    if (!storage) {
+      return;
+    }
+
+    try {
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+
+        if (!key) {
+          continue;
+        }
+
+        const value = storage.getItem(key);
+
+        collectStoredValueUserNameCandidates(value, key, [storageType, key], candidates, 0);
+
+        try {
+          collectStoredValueUserNameCandidates(JSON.parse(value), key, [storageType, key], candidates, 0);
+        } catch (_error) {
+          // Most storage values are plain strings; only JSON values need a deep scan.
+        }
+      }
+    } catch (_error) {
+      // Storage can be unavailable under some browser privacy settings.
+    }
+  }
+
+  function collectStoredValueUserNameCandidates(value, storageKey, path, candidates, depth) {
+    if (depth > 8 || value == null) {
+      return;
+    }
+
+    if (typeof value === "string") {
+      const playerName = cleanPlayerName(value);
+
+      if (isLikelyStoredPlayerName(playerName)) {
+        const leafKey = path[path.length - 1] || storageKey;
+        const score = scoreStoredUserNameCandidate(storageKey, path, leafKey);
+
+        if (score >= 8) {
+          candidates.push({
+            name: playerName,
+            score
+          });
+        }
+      }
+
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        collectStoredValueUserNameCandidates(value[index], storageKey, path.concat(String(index)), candidates, depth + 1);
+      }
+
+      return;
+    }
+
+    if (typeof value === "object") {
+      for (const key of Object.keys(value)) {
+        collectStoredValueUserNameCandidates(value[key], storageKey, path.concat(key), candidates, depth + 1);
+      }
+    }
+  }
+
+  function isLikelyStoredPlayerName(value) {
+    return /^[A-Za-z0-9_][A-Za-z0-9_.-]{1,39}$/.test(value) && !isInvalidPlayerName(value);
+  }
+
+  function scoreStoredUserNameCandidate(storageKey, path, leafKey) {
+    const leafWords = getStorageKeyWords(leafKey);
+    const contextWords = getStorageKeyWords([storageKey].concat(path).join(" "));
+    let score = 0;
+
+    if (hasWords(leafWords, ["username"]) || hasWords(leafWords, ["user", "name"])) {
+      score += 8;
+    } else if (hasWords(leafWords, ["player", "name"]) || hasWords(leafWords, ["display", "name"]) || hasWords(leafWords, ["nick", "name"])) {
+      score += 6;
+    } else if (hasWords(leafWords, ["name"]) && hasAnyWord(contextWords, ["account", "auth", "current", "me", "profile", "self", "user"])) {
+      score += 3;
+    }
+
+    if (hasAnyWord(contextWords, ["account", "auth", "current", "me", "profile", "self", "user"])) {
+      score += 4;
+    }
+
+    if (hasAnyWord(contextWords, ["opponent", "opponents", "players", "room", "state"])) {
+      score -= 4;
+    }
+
+    return score;
+  }
+
+  function getStorageKeyWords(value) {
+    return String(value || "")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[^A-Za-z0-9]+/g, " ")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  function hasWords(words, requiredWords) {
+    return requiredWords.every((word) => words.includes(word));
+  }
+
+  function hasAnyWord(words, candidateWords) {
+    return candidateWords.some((word) => words.includes(word));
+  }
+
+  function chooseStoredLocalUserName(candidates) {
+    const bestByName = new Map();
+
+    for (const candidate of candidates) {
+      const existing = bestByName.get(candidate.name);
+
+      if (!existing || candidate.score > existing.score) {
+        bestByName.set(candidate.name, candidate);
+      }
+    }
+
+    const ranked = Array.from(bestByName.values()).sort((first, second) => second.score - first.score);
+
+    if (!ranked.length || ranked[0].score < 8) {
+      return "";
+    }
+
+    if (ranked[1] && ranked[0].score - ranked[1].score < 2) {
+      return "";
+    }
+
+    return ranked[0].name;
   }
 
   async function loadState() {
@@ -516,7 +850,8 @@ function startColonistHelper(ctx) {
       playerPlacements: Array.isArray(record.playerPlacements) ? record.playerPlacements : [],
       isUserAction: Boolean(record.isUserAction),
       userName: record.userPlayerName || "",
-      userPlacement: record.userPlacement || ""
+      userPlacement: record.userPlacement || "",
+      userIdentitySource: record.userIdentitySource || ""
     };
   }
 
@@ -658,7 +993,8 @@ function startColonistHelper(ctx) {
       playerPlacements: record.playerPlacements,
       isUserAction: Boolean(record.isUserAction),
       userPlayerName: record.userPlayerName || "",
-      userPlacement: record.userPlacement || ""
+      userPlacement: record.userPlacement || "",
+      userIdentitySource: record.userIdentitySource || ""
     }));
   }
 
@@ -679,7 +1015,8 @@ function startColonistHelper(ctx) {
       playerPlacements: [],
       isUserAction: false,
       userPlayerName: "",
-      userPlacement: ""
+      userPlacement: "",
+      userIdentitySource: ""
     }));
   }
 
@@ -802,9 +1139,7 @@ function startColonistHelper(ctx) {
     const text = normalizeGameplayLogLine(rawText, { playerPlacements });
     const parsed = parseLogLine(text);
     const playerPlacement = findPlayerPlacement(playerPlacements, parsed.player);
-    const userIdentity = options.includeIdentity
-      ? extractLoggedInUserIdentity(getLogRowContextElement(element), text, parsed, playerPlacements)
-      : {};
+    const userIdentity = options.includeIdentity ? extractSelfUserIdentity(parsed, playerPlacements) : {};
 
     return {
       text,
@@ -814,6 +1149,7 @@ function startColonistHelper(ctx) {
       isUserAction: Boolean(userIdentity.isUserAction),
       userPlayerName: userIdentity.userPlayerName || "",
       userPlacement: userIdentity.userPlacement || "",
+      userIdentitySource: userIdentity.userIdentitySource || "",
       element: describeElement(element),
       index,
       key: Number.isFinite(index) ? "index:" + index + ":" + text : "text:" + text
@@ -835,41 +1171,25 @@ function startColonistHelper(ctx) {
     return element.closest("[data-index]") || element;
   }
 
-  function extractLoggedInUserIdentity(element, text, parsed, playerPlacements) {
-    if (!hasLoggedInPlayerAvatar(element)) {
+  function extractSelfUserIdentity(parsed, playerPlacements) {
+    if (!isUserPlaceholderName(parsed.player)) {
       return {
         isUserAction: false,
         userPlayerName: "",
-        userPlacement: ""
+        userPlacement: "",
+        userIdentitySource: ""
       };
     }
 
     const actor = cleanPlayerName(parsed.player);
     const actorPlacement = findPlayerPlacement(playerPlacements, actor);
-    const fallbackPlacement = playerPlacements.length === 1 ? playerPlacements[0].placement : "";
 
     return {
       isUserAction: true,
-      userPlayerName: actor && !isUserPlaceholderName(actor) && !isInvalidPlayerName(actor) ? actor : "",
-      userPlacement: actorPlacement || fallbackPlacement
+      userPlayerName: "",
+      userPlacement: actorPlacement,
+      userIdentitySource: "self-text"
     };
-  }
-
-  function hasLoggedInPlayerAvatar(element) {
-    if (!(element instanceof HTMLElement)) {
-      return false;
-    }
-
-    const candidates = [element, ...Array.from(element.querySelectorAll("*"))];
-
-    return candidates.some((candidate) => {
-      const descriptor = getImageDescriptor(candidate);
-      return descriptor ? isLoggedInPlayerImageDescriptor(descriptor) : false;
-    });
-  }
-
-  function isLoggedInPlayerImageDescriptor(descriptor) {
-    return LOGGED_IN_PLAYER_IMAGE_PATTERN.test(descriptorToSearchText(descriptor));
   }
 
   function extractPlayerPlacements(element, raw) {
@@ -1694,7 +2014,23 @@ function startColonistHelper(ctx) {
       }
     }
 
+    applyKnownLocalUserIdentity(tracker);
+
     return tracker;
+  }
+
+  function applyKnownLocalUserIdentity(tracker) {
+    const localUserName = cleanPlayerName(state.localUserName);
+
+    if (!localUserName || isUserPlaceholderName(localUserName) || isInvalidPlayerName(localUserName)) {
+      return;
+    }
+
+    if (!tracker.players.has(localUserName) && !tracker.placementByPlayer.has(localUserName)) {
+      return;
+    }
+
+    setTrackerUserName(tracker, localUserName, { allowChange: true });
   }
 
   function makeResourceTracker() {
@@ -1827,7 +2163,10 @@ function startColonistHelper(ctx) {
   }
 
   function rememberEventUserIdentity(tracker, eventRecord, actorName, actorPlacement) {
-    const userPlacement = normalizePlacementKey(eventRecord.userPlacement || (eventRecord.isUserAction ? actorPlacement : ""));
+    const actor = cleanPlayerName(actorName);
+    const hasSelfText = isUserPlaceholderName(actor);
+    const trustedMetadata = isTrustedUserIdentityMetadata(eventRecord, actor);
+    const userPlacement = normalizePlacementKey(trustedMetadata ? eventRecord.userPlacement || actorPlacement : hasSelfText ? actorPlacement : "");
 
     if (userPlacement) {
       rememberUserPlacement(tracker, userPlacement);
@@ -1835,25 +2174,31 @@ function startColonistHelper(ctx) {
 
     const metadataUserName = cleanPlayerName(eventRecord.userName);
 
-    if (metadataUserName && !isUserPlaceholderName(metadataUserName) && !isInvalidPlayerName(metadataUserName)) {
+    if (trustedMetadata && metadataUserName && !isUserPlaceholderName(metadataUserName) && !isInvalidPlayerName(metadataUserName)) {
       setTrackerUserName(tracker, metadataUserName);
       return;
     }
 
-    const actor = cleanPlayerName(actorName);
-
-    if (eventRecord.isUserAction && actor && !isUserPlaceholderName(actor) && !isInvalidPlayerName(actor)) {
+    if (trustedMetadata && actor && !isUserPlaceholderName(actor) && !isInvalidPlayerName(actor)) {
       setTrackerUserName(tracker, actor);
       return;
     }
 
-    if (eventRecord.isUserAction || isUserPlaceholderName(actor)) {
+    if (trustedMetadata || hasSelfText) {
       const placementPlayer = getKnownPlayerByPlacement(tracker, userPlacement || actorPlacement);
 
       if (placementPlayer) {
         setTrackerUserName(tracker, placementPlayer);
       }
     }
+  }
+
+  function isTrustedUserIdentityMetadata(eventRecord, actorName) {
+    if (!eventRecord || !eventRecord.isUserAction) {
+      return false;
+    }
+
+    return eventRecord.userIdentitySource === "self-text" || isUserPlaceholderName(actorName);
   }
 
   function rememberPlayerPlacement(tracker, playerName, placement) {
@@ -2414,19 +2759,22 @@ function startColonistHelper(ctx) {
     return player;
   }
 
-  function setTrackerUserName(tracker, playerName) {
+  function setTrackerUserName(tracker, playerName, options = {}) {
     const userName = cleanPlayerName(playerName);
 
     if (!userName || isUserPlaceholderName(userName)) {
-      return;
+      return false;
     }
 
-    if (tracker.userName && tracker.userName !== userName) {
-      return;
+    const previousUserName = tracker.userName;
+
+    if (previousUserName && previousUserName !== userName && !options.allowChange) {
+      return false;
     }
 
     tracker.userName = userName;
-    const userPlacement = tracker.placementByPlayer.get(userName) || tracker.userPlacement;
+    const knownUserPlacement = tracker.placementByPlayer.get(userName);
+    const userPlacement = knownUserPlacement || (previousUserName && previousUserName !== userName ? "" : tracker.userPlacement);
 
     if (userPlacement) {
       tracker.userPlacement = userPlacement;
@@ -2445,6 +2793,8 @@ function startColonistHelper(ctx) {
         robbery.to = userName;
       }
     }
+
+    return true;
   }
 
   function mergeTrackedPlayers(tracker, fromPlayer, toPlayer) {
@@ -2932,6 +3282,8 @@ function startColonistHelper(ctx) {
   }
 
   function exportLogSample() {
+    syncLocalUserIdentity(true);
+
     if (!state.logContainer || !document.contains(state.logContainer)) {
       state.logContainer = findGameLogContainer();
     }
@@ -2954,6 +3306,9 @@ function startColonistHelper(ctx) {
       wsTextFrames: state.wsTextFrames,
       wsTextSamples: state.wsTextSamples,
       historyScanStatus: state.historyScanStatus,
+      localUserName: state.localUserName,
+      localUserSource: state.localUserSource,
+      localUserDomCandidates: state.localUserDomCandidates,
       logContainer: container ? describeElement(container) : null,
       scrollContainer: scrollContainer ? describeScrollContainer(scrollContainer) : null,
       rawText,
@@ -3167,6 +3522,7 @@ function startColonistHelper(ctx) {
       return;
     }
 
+    syncLocalUserIdentity();
     const resourceTracker = computeResourceTracker();
     const playerRows = getTrackedPlayerRows(resourceTracker);
     const snapshot = {
@@ -3190,6 +3546,8 @@ function startColonistHelper(ctx) {
       })),
       monopoly: buildMonopolyViewModel(),
       latestEvents: buildLatestEventViewModels(resourceTracker),
+      localUserName: state.localUserName,
+      localUserSource: state.localUserSource,
       overlayLeft: state.settings.overlayLeft,
       overlayTop: state.settings.overlayTop,
       overlayWidth: state.settings.overlayWidth,
