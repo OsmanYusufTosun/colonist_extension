@@ -31,7 +31,11 @@ function startColonistHelper(ctx) {
   const MAX_EVENTS = 1000;
   const SCAN_INTERVAL_MS = 1200;
   const SAVE_DELAY_MS = 250;
-  const HISTORY_SCAN_SETTLE_MS = 90;
+  const HISTORY_SCAN_SETTLE_MS = 220;
+  const HISTORY_SCAN_STEP_RATIO = 0.28;
+  const HISTORY_SCAN_MIN_STEP_PX = 24;
+  const HISTORY_SCAN_MAX_STEPS = 900;
+  const HISTORY_SCAN_READS_PER_STEP = 2;
   const NEAR_BOTTOM_PX = 48;
   const LOCAL_USER_SCAN_INTERVAL_MS = 5000;
 
@@ -3112,7 +3116,7 @@ function startColonistHelper(ctx) {
     }
 
     const draft = getMonopolyDraft(eventId);
-    draft.leftTotals[player] = clampWholeNumber(value, 0, 99);
+    draft.leftTotals[player] = normalizeMonopolyLeftTotalInput(value);
     render();
   }
 
@@ -3152,14 +3156,15 @@ function startColonistHelper(ctx) {
     const originalScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const originalScrollBehavior = scrollContainer ? scrollContainer.style.scrollBehavior : "";
     const recordsByKey = new Map();
+    const seenHistoryRecords = new Set();
     let firstSeen = 0;
 
     try {
       if (!scrollContainer) {
-        collectHistoryRecords(container, recordsByKey, () => firstSeen++);
+        collectHistoryRecords(container, recordsByKey, seenHistoryRecords, () => firstSeen++);
       } else {
         scrollContainer.style.scrollBehavior = "auto";
-        await scanScrollableLogHistory(container, scrollContainer, recordsByKey, () => firstSeen++);
+        await scanScrollableLogHistory(container, scrollContainer, recordsByKey, seenHistoryRecords, () => firstSeen++);
       }
 
       const records = Array.from(recordsByKey.values()).sort(compareHistoryRecords);
@@ -3203,15 +3208,13 @@ function startColonistHelper(ctx) {
     }
   }
 
-  async function scanScrollableLogHistory(container, scrollContainer, recordsByKey, nextFirstSeen) {
-    const stepSize = Math.max(40, Math.floor(scrollContainer.clientHeight * 0.65));
+  async function scanScrollableLogHistory(container, scrollContainer, recordsByKey, seenHistoryRecords, nextFirstSeen) {
+    const stepSize = Math.max(HISTORY_SCAN_MIN_STEP_PX, Math.floor(scrollContainer.clientHeight * HISTORY_SCAN_STEP_RATIO));
     let nextTop = 0;
 
-    for (let step = 0; step < 400; step += 1) {
+    for (let step = 0; step < HISTORY_SCAN_MAX_STEPS; step += 1) {
       scrollContainer.scrollTop = nextTop;
-      await waitForDomSettle();
-
-      collectHistoryRecords(container, recordsByKey, nextFirstSeen);
+      await collectSettledHistoryRecords(container, recordsByKey, seenHistoryRecords, nextFirstSeen);
 
       const maxTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
       state.historyScanStatus = "History " + Math.round(maxTop ? (nextTop / maxTop) * 100 : 100) + "%";
@@ -3225,10 +3228,24 @@ function startColonistHelper(ctx) {
     }
   }
 
-  function collectHistoryRecords(container, recordsByKey, nextFirstSeen) {
+  async function collectSettledHistoryRecords(container, recordsByKey, seenHistoryRecords, nextFirstSeen) {
+    for (let read = 0; read < HISTORY_SCAN_READS_PER_STEP; read += 1) {
+      await waitForDomSettle();
+      collectHistoryRecords(container, recordsByKey, seenHistoryRecords, nextFirstSeen);
+    }
+  }
+
+  function collectHistoryRecords(container, recordsByKey, seenHistoryRecords, nextFirstSeen) {
     const records = extractVisibleLogRecords(container).filter((record) => isLikelyLogLine(record.text));
 
     for (const record of records) {
+      const visibleKey = getHistoryVisibleRecordKey(record);
+
+      if (seenHistoryRecords.has(visibleKey)) {
+        continue;
+      }
+
+      seenHistoryRecords.add(visibleKey);
       const seenOrder = nextFirstSeen();
       const key = Number.isFinite(record.index) ? "index:" + record.index : "seen:" + seenOrder + ":" + record.text;
 
@@ -3240,6 +3257,14 @@ function startColonistHelper(ctx) {
         });
       }
     }
+  }
+
+  function getHistoryVisibleRecordKey(record) {
+    if (Number.isFinite(record.index)) {
+      return "index:" + record.index;
+    }
+
+    return record.key || "text:" + record.text;
   }
 
   function compareHistoryRecords(first, second) {
@@ -3417,6 +3442,24 @@ function startColonistHelper(ctx) {
     return clamp(number, min, max);
   }
 
+  function normalizeMonopolyLeftTotalInput(value) {
+    const digits = String(value || "").replace(/\D+/g, "");
+
+    if (!digits) {
+      return "";
+    }
+
+    return String(clampWholeNumber(digits, 0, 99));
+  }
+
+  function getMonopolyLeftTotalValue(value, fallback) {
+    if (value === "") {
+      return clampWholeNumber(fallback, 0, 99);
+    }
+
+    return clampWholeNumber(value, 0, 99);
+  }
+
   function getMonopolyDraft(eventId) {
     if (!state.monopolyDrafts[eventId]) {
       state.monopolyDrafts[eventId] = {
@@ -3467,7 +3510,7 @@ function startColonistHelper(ctx) {
       .map((row) => {
         const before = getPlayerTotalRange(monopolyTracker, row.player).max;
         const hasDraftValue = Object.prototype.hasOwnProperty.call(draft.leftTotals, row.player);
-        const left = clampWholeNumber(hasDraftValue ? draft.leftTotals[row.player] : before, 0, 99);
+        const left = getMonopolyLeftTotalValue(hasDraftValue ? draft.leftTotals[row.player] : before, before);
 
         return {
           player: row.player,
@@ -3585,7 +3628,7 @@ function startColonistHelper(ctx) {
           displayName: row.displayName,
           color: row.color,
           totalRange: row.totalRange,
-          value: hasDraftValue ? clampWholeNumber(draft.leftTotals[row.player], 0, 99) : row.totalRange.max
+          value: hasDraftValue ? draft.leftTotals[row.player] : String(row.totalRange.max)
         };
       });
 

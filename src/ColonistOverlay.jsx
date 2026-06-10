@@ -575,10 +575,9 @@ function MonopolyPanel({ monopoly, actions }) {
                 <small>{formatRange(victim.totalRange)}</small>
               </span>
               <input
-                type="number"
-                min="0"
-                max="99"
+                type="text"
                 inputMode="numeric"
+                pattern="[0-9]*"
                 value={victim.value}
                 title="Total cards left after Monopoly"
                 onChange={(event) => actions.setMonopolyLeftTotal(monopoly.eventId, victim.player, event.target.value)}
